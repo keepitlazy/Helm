@@ -1,5 +1,5 @@
 {
-  "name": "stream-demo-client",
+  "name": "helm-client",
   "version": "0.1.0",
   "description": "Electron UI client for the low-latency screen streaming demo",
   "main": "main.js",
