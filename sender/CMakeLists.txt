@@ -50,4 +50,5 @@ target_link_libraries(stream_sender PRIVATE
   ws2_32              # Winsock TCP transport
   windowscodecs       # WIC (JPEG encode + debug BMP dump)
   ole32               # CreateStreamOnHGlobal / GetHGlobalFromStream
+  user32              # SetProcessDpiAwarenessContext / MonitorFromPoint
 )

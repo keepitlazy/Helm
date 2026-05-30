@@ -19,8 +19,28 @@ let dragging = false;
 let start = null;          // { x, y } drag origin
 let rect = null;           // committed selection { x, y, w, h } in CSS px
 
+// Reset all selection UI to the initial state. The overlay window is reused
+// across screenshots (pre-warmed), so any leftover selection from a previous
+// session must be cleared before a fresh frame is shown.
+function resetState() {
+  dragging = false;
+  start = null;
+  rect = null;
+  sel.style.display = 'none';
+  sizeLabel.style.display = 'none';
+  hideBar();
+  for (const m of [maskTop, maskBottom, maskLeft, maskRight]) m.style.cssText = '';
+  hint.style.display = 'block';
+}
+
 window.overlayApi.onImage((data) => {
   imgMeta = data;
+  resetState();
+  // Reveal the window only once the frame is actually painted, so the freeze
+  // appears in a single paint with no blank/stale flash. onerror still reveals
+  // so a failed capture doesn't leave the window stuck hidden.
+  shot.onload = () => window.overlayApi.shown();
+  shot.onerror = () => window.overlayApi.shown();
   shot.src = data.url;
 });
 

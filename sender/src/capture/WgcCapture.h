@@ -23,8 +23,9 @@ public:
     WgcCapture() = default;
     ~WgcCapture();
 
-    // Initialise D3D11 + start capturing the primary monitor.
-    void Start(const FrameCallback& cb);
+    // Initialise D3D11 + start capturing `mon`. If `mon` is null, the primary
+    // monitor is captured (back-compat with the --serve / --demo modes).
+    void Start(const FrameCallback& cb, HMONITOR mon = nullptr);
     void Stop();
 
     ID3D11Device* Device() const { return device_.get(); }

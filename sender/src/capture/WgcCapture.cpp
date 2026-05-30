@@ -29,14 +29,16 @@ com_ptr<ID3D11Texture2D> GetTexture(const IDirect3DSurface& surface) {
 
 WgcCapture::~WgcCapture() { Stop(); }
 
-void WgcCapture::Start(const FrameCallback& cb) {
+void WgcCapture::Start(const FrameCallback& cb, HMONITOR mon) {
     callback_ = cb;
 
-    // --- Pick the adapter that actually owns the primary monitor's output.
+    // Default to the primary monitor when no specific one is requested.
+    if (!mon) mon = MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTOPRIMARY);
+
+    // --- Pick the adapter that actually owns the target monitor's output.
     // This box has multiple adapters (Intel + an Oray virtual display). WGC
     // capture must run on the SAME adapter that drives the monitor, otherwise
     // we get all-black cross-adapter frames.
-    HMONITOR primaryMon = MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTOPRIMARY);
     com_ptr<IDXGIFactory1> factory;
     check_hr(CreateDXGIFactory1(guid_of<IDXGIFactory1>(), factory.put_void()), "CreateDXGIFactory1");
 
@@ -51,8 +53,8 @@ void WgcCapture::Start(const FrameCallback& cb) {
             DXGI_OUTPUT_DESC od{}; output->GetDesc(&od);
             LOGI("adapter[%u] '%ls' output '%ls' monitor=%p%s",
                  ai, ad.Description, od.DeviceName, (void*)od.Monitor,
-                 od.Monitor == primaryMon ? "  <-- primary" : "");
-            if (od.Monitor == primaryMon) chosen = adapter;
+                 od.Monitor == mon ? "  <-- target" : "");
+            if (od.Monitor == mon) chosen = adapter;
         }
     }
 
@@ -72,8 +74,7 @@ void WgcCapture::Start(const FrameCallback& cb) {
              "CreateDirect3D11DeviceFromDXGIDevice");
     rt_device_ = inspectable.as<IDirect3DDevice>();
 
-    // --- Build a GraphicsCaptureItem for the primary monitor.
-    HMONITOR mon = MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTOPRIMARY);
+    // --- Build a GraphicsCaptureItem for the target monitor.
     auto interop = get_activation_factory<GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
     check_hr(interop->CreateForMonitor(mon, guid_of<GraphicsCaptureItem>(),
                                        put_abi(item_)), "CreateForMonitor");

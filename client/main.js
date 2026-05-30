@@ -7,7 +7,7 @@
 
 const { app, BrowserWindow, ipcMain, utilityProcess, MessageChannelMain,
         screen, clipboard, nativeImage } = require('electron');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -45,12 +45,21 @@ function createWindow() {
   });
   win.removeMenu();
   mainWindow = win;
-  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+    // Tear down the pre-warmed overlay too; a lingering hidden window would
+    // otherwise keep the app alive after the main window closes.
+    if (overlayWin) { try { overlayWin.destroy(); } catch (_) {} overlayWin = null; }
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // Spawn the engine bridge (utilityProcess) and hand one end of a MessageChannel
   // to the renderer so it talks to the bridge directly, off the main thread.
-  win.webContents.once('did-finish-load', () => startEngineBridge(win.webContents));
+  win.webContents.once('did-finish-load', () => {
+    startEngineBridge(win.webContents);
+    warmOverlay();          // pre-create + load the screenshot overlay so it shows instantly later
+    startSnapshotService(); // keep a warm WGC capture running so screenshots have no spawn latency
+  });
 }
 
 let engineBridge = null;
@@ -67,15 +76,20 @@ function startEngineBridge(targetWebContents) {
 }
 
 // Capture one desktop frame via the native engine, return a viewable URL.
-function captureScreenshot() {
+// `physPoint` (optional {x,y} in physical screen pixels) selects the monitor
+// under that point — per-display capture; omit it to capture the primary.
+function captureScreenshot(physPoint) {
   if (!fs.existsSync(SENDER_EXE)) {
     return Promise.resolve({ ok: false, error: `sender not built: ${SENDER_EXE}` });
   }
   const outPath = path.join(os.tmpdir(), `stream_demo_shot_${Date.now()}.bmp`);
   const started = Date.now();
 
+  const args = ['--screenshot', outPath];
+  if (physPoint) args.push(String(Math.round(physPoint.x)), String(Math.round(physPoint.y)));
+
   return new Promise((resolve) => {
-    execFile(SENDER_EXE, ['--screenshot', outPath], { timeout: 12000 },
+    execFile(SENDER_EXE, args, { timeout: 12000 },
       (err, stdout) => {
         const elapsedMs = Date.now() - started;
         const okLine = /SCREENSHOT_OK\s+\S+\s+(\d+)x(\d+)/.exec(stdout || '');
@@ -98,7 +112,81 @@ function captureScreenshot() {
   });
 }
 
-ipcMain.handle('capture:screenshot', () => captureScreenshot());
+// ---- Resident snapshot service ---------------------------------------------
+//
+// `stream_sender.exe --snapshot-serve` keeps a live WGC capture warm per monitor
+// and serves screenshots from the newest frame on demand. This removes the
+// process-spawn + capture-warm-up latency (~100-300ms) from every screenshot, so
+// the overlay freeze appears effectively instantly. We talk to it over stdin/
+// stdout: write "snap\t<x>\t<y>\t<path>\n", read back "SNAPSHOT_OK <path> WxH".
+let snapProc = null;
+let snapReady = false;
+const snapQueue = [];           // FIFO of pending { resolve, outPath } awaiting a reply
+let snapStdoutBuf = '';
+
+function startSnapshotService() {
+  if (snapProc || !fs.existsSync(SENDER_EXE)) return;
+  snapProc = spawn(SENDER_EXE, ['--snapshot-serve'], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  snapProc.stdout.on('data', (chunk) => {
+    snapStdoutBuf += chunk.toString('utf8');
+    let nl;
+    while ((nl = snapStdoutBuf.indexOf('\n')) >= 0) {
+      const line = snapStdoutBuf.slice(0, nl).trim();
+      snapStdoutBuf = snapStdoutBuf.slice(nl + 1);
+      if (!line) continue;
+      if (line === 'SNAPSHOT_READY') { snapReady = true; continue; }
+      const ok = /^SNAPSHOT_OK\s+\S+\s+(\d+)x(\d+)/.exec(line);
+      if (ok) {
+        const job = snapQueue.shift();
+        if (job) job.resolve({
+          ok: true,
+          url: pathToFileURL(job.outPath).href,
+          width: Number(ok[1]),
+          height: Number(ok[2]),
+          elapsedMs: Date.now() - job.started,
+        });
+      } else if (/^SNAPSHOT_FAIL/.test(line)) {
+        const job = snapQueue.shift();
+        if (job) job.resolve({ ok: false, error: line });
+      }
+    }
+  });
+
+  // If the engine dies, reject anything in flight and let the next request fall
+  // back to a one-shot capture (and respawn the service).
+  const onGone = () => {
+    snapReady = false;
+    snapProc = null;
+    while (snapQueue.length) snapQueue.shift().resolve({ ok: false, error: 'snapshot engine exited' });
+  };
+  snapProc.once('exit', onGone);
+  snapProc.once('error', onGone);
+}
+
+// Serve a screenshot from the warm engine; fall back to a one-shot capture if the
+// engine isn't ready. `physPoint` selects the monitor (physical pixels); omit/null
+// -> primary (encoded as x=-1 on the wire).
+function snapshot(physPoint) {
+  if (!snapProc || !snapReady) {
+    startSnapshotService();              // (re)start for next time
+    return captureScreenshot(physPoint); // this time, fall back to one-shot
+  }
+  const outPath = path.join(os.tmpdir(), `stream_demo_shot_${Date.now()}.bmp`);
+  const x = physPoint ? Math.round(physPoint.x) : -1;
+  const y = physPoint ? Math.round(physPoint.y) : 0;
+  return new Promise((resolve) => {
+    snapQueue.push({ resolve, outPath, started: Date.now() });
+    try {
+      snapProc.stdin.write(`snap\t${x}\t${y}\t${outPath}\n`);
+    } catch (err) {
+      snapQueue.pop();
+      resolve(captureScreenshot(physPoint));
+    }
+  });
+}
+
+ipcMain.handle('capture:screenshot', () => snapshot());
 
 // ---- WeChat-style region screenshot ---------------------------------------
 //
@@ -107,33 +195,18 @@ ipcMain.handle('capture:screenshot', () => captureScreenshot());
 // crops the region to a PNG and ships the bytes back here → we drop it on the
 // system clipboard. Esc / right-click / blur cancels.
 
-let overlayWin = null;
+let overlayWin = null;          // persistent, pre-warmed fullscreen overlay window
+let overlayReadyPromise = null; // resolves when overlay.html has finished loading
+let overlayActive = false;      // a selection session is currently on screen
+let overlayBounds = null;       // target monitor bounds (DIP) for the current session
 
-function closeOverlay() {
-  if (overlayWin) { try { overlayWin.close(); } catch (_) {} overlayWin = null; }
-}
-
-async function startRegionScreenshot() {
-  if (overlayWin) return { ok: false, error: 'overlay already open' };
-
-  // Hide our control window first so it isn't captured, then give the desktop
-  // compositor a moment to repaint before the native engine grabs a frame.
-  if (mainWindow) mainWindow.hide();
-  await new Promise((r) => setTimeout(r, 180));
-
-  const shot = await captureScreenshot();
-  if (!shot.ok) {
-    if (mainWindow) mainWindow.show();
-    return { ok: false, error: shot.error };
-  }
-
-  // Cover the display the cursor is on (full bounds, including taskbar).
-  const cursor = screen.getCursorScreenPoint();
-  const disp = screen.getDisplayNearestPoint(cursor);
-  const { x, y, width, height } = disp.bounds;
-
-  overlayWin = new BrowserWindow({
-    x, y, width, height,
+// Pre-create the overlay window once and load its HTML, kept hidden and reused
+// across screenshots. This removes the window-creation + page-load latency from
+// the capture path, so triggering a screenshot only costs "send image + show".
+function warmOverlay() {
+  if (overlayWin) return;
+  const win = new BrowserWindow({
+    show: false,
     frame: false,
     transparent: false,
     resizable: false,
@@ -144,29 +217,82 @@ async function startRegionScreenshot() {
     alwaysOnTop: true,
     hasShadow: false,
     fullscreenable: false,
+    thickFrame: false,                // drop WS_THICKFRAME -> no resize border on Windows
+    roundedCorners: false,            // Win11 draws rounded corners on frameless windows;
+                                      // they expose the desktop at the 4 corners (looks like a border)
+    enableLargerThanScreen: true,     // allow covering the full monitor bounds exactly
     backgroundColor: '#000000',
+    paintWhenInitiallyHidden: true,   // render while hidden so the first show is instant
     webPreferences: {
       preload: path.join(__dirname, 'preload-overlay.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,    // keep painting while hidden
     },
   });
-  overlayWin.setAlwaysOnTop(true, 'screen-saver');
-  overlayWin.removeMenu();
-
-  const win = overlayWin;
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.removeMenu();
   win.on('closed', () => {
-    if (overlayWin === win) overlayWin = null;
-    if (mainWindow) mainWindow.show();
+    if (overlayWin === win) { overlayWin = null; overlayReadyPromise = null; overlayActive = false; }
   });
+  overlayReadyPromise = win.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
+  overlayWin = win;
+}
 
-  await win.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
-  win.webContents.send('overlay:image', {
+// Hide (not destroy) the overlay after a session so it stays warm for next time.
+function hideOverlay() {
+  overlayActive = false;
+  if (overlayWin) { try { overlayWin.hide(); } catch (_) {} }
+}
+
+async function startRegionScreenshot() {
+  if (overlayActive) return { ok: false, error: 'overlay already open' };
+
+  // The overlay window is pre-warmed at startup; make sure it exists & is loaded.
+  if (!overlayWin) warmOverlay();
+  await overlayReadyPromise;
+
+  // Per-display capture: target the monitor under the cursor, captured at its
+  // native (physical) resolution. dipToScreenPoint converts the DIP cursor to
+  // the physical-pixel space the native MonitorFromPoint expects.
+  const cursorDip = screen.getCursorScreenPoint();
+  const disp = screen.getDisplayNearestPoint(cursorDip);
+  const cursorPhys = screen.dipToScreenPoint(cursorDip);
+
+  // WeChat-style frozen frame: capture whatever is on screen *without* hiding our
+  // own window first. No hide/repaint wait means no visible seam before the freeze.
+  // Served from the resident warm engine, so there's no spawn/warm-up latency.
+  const shot = await snapshot(cursorPhys);
+  if (!shot.ok) return { ok: false, error: shot.error };
+  if (!overlayWin) return { ok: false, error: 'overlay gone' };
+
+  // Cover that same display 1:1 (its full bounds, including taskbar). The image's
+  // physical px == the display's physical px, and the window covers the display
+  // in DIP, so devicePixelRatio maps each image pixel to one device pixel.
+  overlayBounds = disp.bounds;
+  overlayWin.setBounds(overlayBounds);
+
+  overlayActive = true;
+  // Hand the frozen image to the already-loaded overlay. It paints the image and
+  // calls back 'overlay:shown'; only then do we reveal the window, so the user
+  // never sees a blank or stale frame — the freeze appears in a single paint.
+  overlayWin.webContents.send('overlay:image', {
     url: shot.url, width: shot.width, height: shot.height,
   });
-  win.focus();
   return { ok: true };
 }
+
+// Overlay reports the new frame is painted → reveal the window in one shot.
+ipcMain.on('overlay:shown', () => {
+  if (!overlayActive || !overlayWin) return;
+  overlayWin.setAlwaysOnTop(true, 'screen-saver');
+  // showInactive + re-assert bounds: setBounds on a still-hidden window can be
+  // clamped/ignored on Windows, so apply it again now that the window is mapped
+  // to guarantee it covers the whole monitor (no border, truly fullscreen).
+  overlayWin.show();
+  if (overlayBounds) overlayWin.setBounds(overlayBounds);
+  overlayWin.focus();
+});
 
 ipcMain.handle('screenshot:start', () => startRegionScreenshot());
 
@@ -185,10 +311,10 @@ ipcMain.on('overlay:commit', (_e, payload) => {
       mainWindow.webContents.send('screenshot:error', { message: err.message });
     }
   }
-  closeOverlay();
+  hideOverlay();
 });
 
-ipcMain.on('overlay:cancel', () => closeOverlay());
+ipcMain.on('overlay:cancel', () => hideOverlay());
 
 // Headless end-to-end check: native capture + Chromium BMP decode, then exit.
 async function runSelfTest() {
@@ -270,7 +396,10 @@ if (process.argv.includes('--selftest')) {
   app.whenReady().then(createWindow);
 }
 
-app.on('will-quit', () => { if (engineBridge) { try { engineBridge.kill(); } catch (_) {} } });
+app.on('will-quit', () => {
+  if (engineBridge) { try { engineBridge.kill(); } catch (_) {} }
+  if (snapProc) { try { snapProc.stdin.write('quit\n'); } catch (_) {} try { snapProc.kill(); } catch (_) {} }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
