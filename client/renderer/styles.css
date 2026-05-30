@@ -1,0 +1,71 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0e1a;
+  --panel: #0f172a;
+  --border: #1e293b;
+  --text: #e4e7ee;
+  --muted: #94a3b8;
+  --accent: #06b6d4;
+  --green: #4ade80;
+}
+body {
+  font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 18px 22px;
+  user-select: none;
+}
+header { margin-bottom: 16px; }
+.title {
+  font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 10px;
+  background: linear-gradient(90deg, var(--green), var(--accent));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.title .dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 10px var(--green);
+  -webkit-text-fill-color: initial;
+}
+.subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+button {
+  font-size: 14px; font-weight: 600; padding: 9px 16px; border-radius: 10px;
+  border: 1px solid var(--border); cursor: pointer; transition: .15s;
+}
+button.primary { background: linear-gradient(180deg, #0891b2, #0e7490); color: #fff; border: none; }
+button.primary:hover { filter: brightness(1.12); }
+button.primary:active { transform: translateY(1px); }
+button.primary:disabled { opacity: .5; cursor: progress; }
+button.ghost { background: transparent; color: var(--muted); }
+button.ghost:disabled { opacity: .4; cursor: not-allowed; }
+
+.status {
+  margin-left: auto; font-size: 13px; color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+.status.busy { color: #fbbf24; }
+.status.ok { color: var(--green); }
+.status.err { color: #ef4444; }
+
+.stage {
+  position: relative; border: 1px solid var(--border); border-radius: 14px;
+  background:
+    linear-gradient(45deg, #0c1322 25%, transparent 25%, transparent 75%, #0c1322 75%) 0 0/24px 24px,
+    linear-gradient(45deg, #0c1322 25%, #0b1020 25%, #0b1020 75%, #0c1322 75%) 12px 12px/24px 24px,
+    var(--panel);
+  min-height: 420px; display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.placeholder { color: var(--muted); font-size: 14px; }
+#shot { max-width: 100%; max-height: 560px; display: block; border-radius: 6px; }
+
+.stats {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px;
+}
+.stat {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px;
+}
+.stat label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.stat span { font-size: 14px; font-family: ui-monospace, monospace; color: var(--green); }

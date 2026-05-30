@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' file: data:; style-src 'self' 'unsafe-inline';" />
+  <title>Screen Streaming Demo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="title">
+      <span class="dot"></span>
+      低延迟屏幕串流 · 控制台
+    </div>
+    <div class="subtitle">WGC 采集 → D3D11 → 编码 → 传输 → 解码渲染</div>
+  </header>
+
+  <section class="toolbar">
+    <button id="btnShot" class="primary">📸 区域截图</button>
+    <button id="btnStream" class="ghost">▶ 开始串流</button>
+    <div id="status" class="status">就绪</div>
+  </section>
+
+  <section class="stage">
+    <div id="placeholder" class="placeholder">
+      点击 <b>桌面截图</b> 抓一帧，或 <b>开始串流</b> 看实时画面
+    </div>
+    <img id="shot" alt="captured frame" hidden />
+    <canvas id="screen" hidden></canvas>
+  </section>
+
+  <section class="stats" id="stats" hidden>
+    <div class="stat"><label>分辨率</label><span id="stRes">—</span></div>
+    <div class="stat"><label>采集引擎</label><span>WGC + D3D11 (native)</span></div>
+    <div class="stat"><label>端到端耗时</label><span id="stTime">—</span></div>
+    <div class="stat"><label>像素格式</label><span>BGRA → (NV12 待接入)</span></div>
+  </section>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>远程桌面控制架构图</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #0a0e1a;
+    color: #e4e7ee;
+    padding: 16px;
+    min-height: 100vh;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 {
+    font-size: 22px;
+    text-align: center;
+    margin-bottom: 8px;
+    background: linear-gradient(90deg, #4ade80, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .badges { text-align:center; margin-bottom: 20px; }
+  .badge {
+    display:inline-block; font-size:11px; font-family: ui-monospace, monospace;
+    background:#0f172a; border:1px solid #1e293b; color:#67e8f9;
+    padding:3px 9px; border-radius:10px; margin:3px;
+  }
+  .badge.demo { color:#fca5a5; border-color:#7f1d1d; }
+
+  .endpoint {
+    border: 2px solid #1e293b;
+    border-radius: 16px;
+    padding: 16px 12px;
+    margin-bottom: 16px;
+    background: linear-gradient(180deg, #0f172a, #0a0e1a);
+  }
+  .endpoint-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    padding-left: 8px;
+    border-left: 4px solid #06b6d4;
+  }
+  .controller .endpoint-title { border-left-color: #a78bfa; }
+  .host .endpoint-title { border-left-color: #4ade80; }
+
+  .module {
+    background: #1e293b;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    border-left: 3px solid #06b6d4;
+    position: relative;
+  }
+  .module.capture { border-left-color: #4ade80; }
+  .module.process { border-left-color: #facc15; }
+  .module.encode  { border-left-color: #f97316; }
+  .module.network { border-left-color: #ef4444; }
+  .module.decode  { border-left-color: #a78bfa; }
+  .module.render  { border-left-color: #ec4899; }
+  .module.input   { border-left-color: #06b6d4; }
+
+  .module-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+  }
+  .module-name { font-size: 14px; font-weight: 600; color: #f1f5f9; }
+  .module-latency {
+    font-size: 11px; background: #0f172a; padding: 2px 8px;
+    border-radius: 10px; color: #4ade80; font-family: ui-monospace, monospace;
+  }
+  .module-tech {
+    font-size: 12px; color: #94a3b8; margin-bottom: 6px; line-height: 1.5;
+  }
+  .module-tech code {
+    background: #0f172a; padding: 1px 6px; border-radius: 4px;
+    color: #06b6d4; font-size: 11px;
+  }
+  .module-desc { font-size: 12px; color: #cbd5e1; line-height: 1.6; }
+  .data-format {
+    display: inline-block; font-size: 11px; color: #facc15;
+    background: rgba(250,204,21,0.1); padding: 2px 6px; border-radius: 4px;
+    margin-top: 4px; font-family: ui-monospace, monospace;
+  }
+  .reuse {
+    display:inline-block; font-size:10px; font-family: ui-monospace, monospace;
+    padding:1px 6px; border-radius:4px; margin-top:6px; margin-right:4px;
+  }
+  .reuse.keep   { background: rgba(74,222,128,0.12); color:#86efac; }
+  .reuse.change { background: rgba(250,204,21,0.12); color:#fde047; }
+  .reuse.add    { background: rgba(96,165,250,0.14); color:#93c5fd; }
+
+  .arrow { text-align: center; color: #475569; font-size: 20px; margin: 2px 0; line-height: 1; }
+
+  .network-layer {
+    background: linear-gradient(90deg, #7f1d1d, #991b1b, #7f1d1d);
+    border-radius: 16px; padding: 16px; margin-bottom: 16px;
+    text-align: center; position: relative; overflow: hidden;
+  }
+  .network-layer::before {
+    content: ""; position: absolute; top: 0; left: -100%;
+    width: 100%; height: 2px;
+    background: linear-gradient(90deg, transparent, #fbbf24, transparent);
+    animation: flow 2s linear infinite;
+  }
+  @keyframes flow { to { left: 100%; } }
+  .network-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: #fef2f2; }
+  .network-detail { font-size: 12px; color: #fecaca; line-height: 1.6; }
+  .network-detail code {
+    background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 4px;
+    color: #fef08a; font-size: 11px;
+  }
+
+  .flow-label { text-align: center; font-size: 11px; color: #64748b; font-family: ui-monospace, monospace; margin: 4px 0; }
+  .flow-label span { background: #0a0e1a; padding: 0 10px; }
+
+  .summary { background: linear-gradient(135deg, #064e3b, #065f46); border-radius: 16px; padding: 16px; margin-top: 16px; }
+  .summary-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #d1fae5; text-align: center; }
+  .summary-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); font-size: 13px;
+  }
+  .summary-row:last-child {
+    border-bottom: none; margin-top: 6px; padding-top: 10px;
+    border-top: 2px solid rgba(255,255,255,0.2); font-weight: 600; color: #fde047;
+  }
+  .summary-stage { color: #a7f3d0; }
+  .summary-time { font-family: ui-monospace, monospace; color: #fef3c7; }
+
+  .critical { margin-top: 16px; padding: 14px; background: #1e1b4b; border-radius: 12px; border-left: 4px solid #fbbf24; }
+  .critical-title { font-size: 13px; font-weight: 600; color: #fde68a; margin-bottom: 8px; }
+  .critical-text { font-size: 12px; color: #c7d2fe; line-height: 1.7; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; justify-content: center; }
+  .legend-item { display: flex; align-items: center; font-size: 11px; color: #94a3b8; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+
+  .section-title {
+    font-size: 14px; font-weight: 600; color:#67e8f9; margin: 22px 0 10px;
+    padding-left: 8px; border-left: 4px solid #06b6d4;
+  }
+
+  /* migration table */
+  table.migrate { width:100%; border-collapse: collapse; font-size:12px; margin-top:6px; }
+  table.migrate th, table.migrate td {
+    text-align:left; padding:8px 10px; border-bottom:1px solid #1e293b; vertical-align: top;
+  }
+  table.migrate th { color:#94a3b8; font-weight:600; }
+  table.migrate code { background:#0f172a; padding:1px 5px; border-radius:4px; color:#06b6d4; font-size:11px; }
+  .tag { display:inline-block; font-size:10px; padding:1px 6px; border-radius:4px; font-family: ui-monospace, monospace; }
+  .tag.keep { background: rgba(74,222,128,0.12); color:#86efac; }
+  .tag.change { background: rgba(250,204,21,0.12); color:#fde047; }
+  .tag.add { background: rgba(96,165,250,0.14); color:#93c5fd; }
+  .tag.drop { background: rgba(239,68,68,0.14); color:#fca5a5; }
+
+  .note { font-size:12px; color:#94a3b8; line-height:1.7; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>远程桌面控制完整架构</h1>
+  <p class="subtitle">Controller (Electron) ⇄ Signaling/TURN ⇄ Host Agent (Electron + Native Input)</p>
+
+  <div class="badges">
+    <span class="badge">公网 + NAT 穿透</span>
+    <span class="badge">WebRTC 视频轨 + DataChannel</span>
+    <span class="badge">控制端复用 Electron</span>
+    <span class="badge demo">Demo 级 · 暂不做认证/加密之上的鉴权</span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="legend-dot" style="background:#4ade80"></span>采集</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#f97316"></span>编码</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>信令/穿透</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#a78bfa"></span>解码/渲染</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#06b6d4"></span>控制通道</div>
+  </div>
+
+  <div class="critical" style="margin-top:0;border-left-color:#06b6d4;background:#0c2a4a">
+    <div class="critical-title" style="color:#7dd3fc">📐 拓扑总览(与原 VR 串流架构的根本区别)</div>
+    <div class="critical-text" style="color:#bae6fd">
+      原架构是<strong>单机自串流 demo</strong>:同一台机器上 Electron 启动 <code>stream_sender.exe</code>,通过 localhost 看自己的桌面,反向只回传 VR 头部姿态。<br><br>
+      新架构是<strong>两台机器、双向控制</strong>:
+      <strong>被控端(Host)</strong>把桌面经 WebRTC 视频轨推给
+      <strong>控制端(Controller)</strong>;控制端把键鼠事件经 <strong>RTCDataChannel</strong> 回传,
+      被控端用原生 <code>SendInput</code> 注入。两端通过<strong>信令服务器</strong>交换 SDP/ICE,
+      用 <strong>STUN/TURN</strong> 完成公网穿透。视频轨的编码、拥塞控制(GCC)、NACK 重传、
+      带宽估计全部交给 Chromium 内置 WebRTC——这是公网场景下不自己造轮子的关键。
+    </div>
+  </div>
+
+  <!-- 控制端 -->
+  <div class="endpoint controller">
+    <div class="endpoint-title">🖥️ 控制端 Controller (操作者的机器 · Electron)</div>
+
+    <div class="module render">
+      <div class="module-header">
+        <span class="module-name">① 接收视频轨 + 渲染</span>
+        <span class="module-latency">~16ms</span>
+      </div>
+      <div class="module-tech">
+        <code>RTCPeerConnection.ontrack</code> → <code>&lt;video&gt;</code> / WebGL
+      </div>
+      <div class="module-desc">
+        WebRTC 协商出的远端视频轨直接挂到 <code>&lt;video&gt;</code> 元素,Chromium 内部完成解码(NVDEC/D3D11VA)与渲染。
+        画面元素同时是<strong>输入采集面</strong>:鼠标/键盘事件落在它上面。
+      </div>
+      <span class="reuse change">改造 client/renderer</span>
+    </div>
+
+    <div class="arrow">↑↓</div>
+
+    <div class="module input">
+      <div class="module-header">
+        <span class="module-name">② 输入采集 + 坐标映射</span>
+        <span class="module-latency">~1ms</span>
+      </div>
+      <div class="module-tech">
+        DOM 事件 <code>mousemove/down/up/wheel</code> · <code>keydown/keyup</code> · <code>pointerlock</code>
+      </div>
+      <div class="module-desc">
+        把光标的视频内归一化坐标 <code>(x/w, y/h)</code> 连同按键码打包成控制消息,经 DataChannel 发出。
+        归一化是因为控制端窗口分辨率 ≠ 被控端桌面分辨率,映射放到被控端做。
+      </div>
+      <span class="data-format">控制消息: {t:"mouse",x:0.42,y:0.7,btn,act} / {t:"key",code,act}</span>
+      <span class="reuse add">新增 input 采集</span>
+    </div>
+  </div>
+
+  <!-- 信令 + 穿透层 -->
+  <div class="network-layer">
+    <div class="network-title">🌐 信令 + NAT 穿透层</div>
+    <div class="network-detail">
+      <strong>信令服务器</strong>(<code>WebSocket</code>,自建 Node 服务):仅转发 <code>SDP offer/answer</code> 与 <code>ICE candidate</code>,不碰媒体流。<br>
+      <strong>穿透</strong>:<code>STUN</code> 获取公网映射地址 → P2P 直连;直连失败时 <code>TURN</code> 中继兜底。<code>ICE</code> 自动择优。<br>
+      <strong>媒体/控制</strong>:连接建立后,视频轨(SRTP)与 DataChannel(SCTP/DTLS)走 P2P 或 TURN,信令服务器不再参与。
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:#fecaca">
+      P2P 直连(打洞成功) ≈ 公网 RTT | TURN 中继 +5~30ms | DTLS-SRTP 默认全程加密
+    </div>
+  </div>
+
+  <!-- 被控端 -->
+  <div class="endpoint host">
+    <div class="endpoint-title">📤 被控端 Host Agent (被控制的机器 · Electron + 原生 Input 注入器)</div>
+
+    <div class="module capture">
+      <div class="module-header">
+        <span class="module-name">③ 屏幕采集</span>
+        <span class="module-latency">~1-5ms</span>
+      </div>
+      <div class="module-tech">
+        主路径: <code>desktopCapturer</code> / <code>getDisplayMedia()</code> → <code>MediaStream</code>
+      </div>
+      <div class="module-desc">
+        Chromium 直接拿到屏幕的 <code>MediaStreamTrack</code>,内部走 WGC/DXGI 采集。无需自写采集代码。
+        <strong>可选低延迟路径</strong>见下方"原生编码旁路"。
+      </div>
+      <span class="data-format">输出: 视频 MediaStreamTrack</span>
+      <span class="reuse add">新增 Host 模式</span>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="module encode">
+      <div class="module-header">
+        <span class="module-name">④ 编码 + WebRTC 发送</span>
+        <span class="module-latency">~5-10ms</span>
+      </div>
+      <div class="module-tech">
+        <code>RTCPeerConnection.addTrack()</code> · 硬件编码 H.264/VP9/AV1 · GCC 拥塞控制
+      </div>
+      <div class="module-desc">
+        Chromium 用可用的硬件编码器(NVENC/QSV/AMF)编码并打包成 SRTP,自动做<strong>码率自适应、NACK 重传、Pacing</strong>。
+        建议设 <code>degradationPreference:"maintain-framerate"</code>、低延迟编码。
+      </div>
+      <span class="reuse keep">复用 WebRTC 内置</span>
+    </div>
+
+    <div class="arrow">↑ 控制通道反向 ↑</div>
+
+    <div class="module input">
+      <div class="module-header">
+        <span class="module-name">⑤ 接收控制消息 + 注入键鼠</span>
+        <span class="module-latency">~1-3ms</span>
+      </div>
+      <div class="module-tech">
+        <code>RTCDataChannel.onmessage</code> → IPC/管道 → 原生 <code>SendInput()</code>
+      </div>
+      <div class="module-desc">
+        被控端 Electron 收到归一化坐标后,乘以本机桌面分辨率换算成绝对像素,交给<strong>原生注入器</strong>用
+        <code>SendInput</code> 合成鼠标移动/点击/滚轮和键盘事件。这是整条链路里 Web 无法替代、必须保留原生的部分。
+      </div>
+      <span class="data-format">SendInput: MOUSEINPUT(绝对坐标) / KEYBDINPUT(扫描码)</span>
+      <span class="reuse change">补全 InputInjector.cpp</span>
+    </div>
+  </div>
+
+  <!-- 原生编码旁路 -->
+  <div class="critical" style="border-left-color:#f97316;background:#2a1a0c">
+    <div class="critical-title" style="color:#fdba74">⚡ 可选:原生低延迟旁路 (保留现有 C++ 管线 · 用于 LAN/极低延迟模式)</div>
+    <div class="critical-text" style="color:#fed7aa">
+      若要榨干延迟或在 LAN 下完全掌控编码,可启用旁路:
+      <strong>原生 WGC 采集 → D3D11 BGRA→NV12 → MF/NVENC 编 H.264</strong>(现有 <code>sender/</code> 管线原样复用)
+      → 经 <strong>RTCDataChannel</strong> 发送 H.264 NAL(沿用现有 <code>proto::FrameHeader</code> 分帧)
+      → 控制端用 <strong>WebCodecs <code>VideoDecoder</code></strong> 解码 → Canvas/WebGL 渲染。<br><br>
+      <strong>代价</strong>:DataChannel 不含媒体级拥塞控制,需自己做码率自适应与抖动缓冲,公网下不如视频轨稳。
+      所以<strong>主路径用视频轨,旁路作为 LAN 高性能选项</strong>,两者通过同一信令/穿透层共存,运行时切换。
+    </div>
+  </div>
+
+  <!-- 延迟汇总 -->
+  <div class="summary">
+    <div class="summary-title">⏱️ 端到端延迟预算 (Click-to-Photon,主路径/视频轨)</div>
+    <div class="summary-row"><span class="summary-stage">② 输入采集 + 发送</span><span class="summary-time">1-2 ms</span></div>
+    <div class="summary-row"><span class="summary-stage">🌐 控制消息上行 (DataChannel)</span><span class="summary-time">RTT/2</span></div>
+    <div class="summary-row"><span class="summary-stage">⑤ 注入 SendInput + 系统响应</span><span class="summary-time">1-3 ms</span></div>
+    <div class="summary-row"><span class="summary-stage">③ 屏幕采集</span><span class="summary-time">1-5 ms</span></div>
+    <div class="summary-row"><span class="summary-stage">④ 编码 + 打包</span><span class="summary-time">5-10 ms</span></div>
+    <div class="summary-row"><span class="summary-stage">🌐 视频下行 (P2P / TURN)</span><span class="summary-time">公网 20-50 ms</span></div>
+    <div class="summary-row"><span class="summary-stage">① 解码 + 渲染</span><span class="summary-time">10-20 ms</span></div>
+    <div class="summary-row"><span>往返感知延迟</span><span>≈ 40-90 ms (公网) · 15-30 ms (LAN)</span></div>
+  </div>
+
+  <!-- 现有代码迁移表 -->
+  <div class="section-title">🔧 从现有代码到新架构:保留 / 改造 / 新增</div>
+  <table class="migrate">
+    <thead>
+      <tr><th>现有模块</th><th>处置</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>sender/src/input/InputInjector.cpp</code></td>
+        <td><span class="tag change">改造</span></td>
+        <td>当前为空。补全 <code>SendInput</code> 注入:接收归一化坐标→换算绝对像素→合成鼠标/键盘事件。这是新架构的核心新增能力。</td>
+      </tr>
+      <tr>
+        <td><code>sender/src/transport/Protocol.h</code></td>
+        <td><span class="tag change">改造</span></td>
+        <td>新增 <code>MSG_INPUT</code> 类型与输入事件结构(鼠标/键盘),供旁路 DataChannel 与 Input 注入器共用。</td>
+      </tr>
+      <tr>
+        <td><code>sender/</code> WGC + ColorConverter + MfEncoder</td>
+        <td><span class="tag keep">保留(旁路)</span></td>
+        <td>主路径不用(交给 Chromium),作为可选低延迟旁路原样复用,产出 H.264 NAL 经 DataChannel 发送。</td>
+      </tr>
+      <tr>
+        <td><code>client/main.js</code></td>
+        <td><span class="tag change">改造</span></td>
+        <td>从"本地截图/串流 demo"改为双模式:<code>--host</code>(被控端,起 WebRTC 发送 + 拉起原生注入器)/ <code>--controller</code>(控制端)。</td>
+      </tr>
+      <tr>
+        <td><code>client/engine-bridge.js</code></td>
+        <td><span class="tag change">改造</span></td>
+        <td>被控端模式下:把 DataChannel 收到的控制消息经命名管道转发给原生注入器(管道框架已现成)。</td>
+      </tr>
+      <tr>
+        <td><code>client/renderer/</code></td>
+        <td><span class="tag change">改造</span></td>
+        <td>控制端 UI:<code>&lt;video&gt;</code> 显示远端桌面 + 采集键鼠事件;被控端 UI:连接状态/授权提示。</td>
+      </tr>
+      <tr>
+        <td>—</td>
+        <td><span class="tag add">新增</span></td>
+        <td><code>signaling/</code> WebSocket 信令服务(Node):转发 SDP/ICE,维护房间/配对码。可与 Electron 同仓。</td>
+      </tr>
+      <tr>
+        <td>—</td>
+        <td><span class="tag add">新增</span></td>
+        <td>WebRTC 封装:两端 <code>RTCPeerConnection</code> 建连、<code>addTrack</code>/<code>ontrack</code>、<code>createDataChannel</code>、ICE/TURN 配置。</td>
+      </tr>
+      <tr>
+        <td>TcpServer / PipeServer 的 localhost 视频通路</td>
+        <td><span class="tag drop">主路径弃用</span></td>
+        <td>跨机视频改走 WebRTC。命名管道仅保留为"Electron ⇄ 原生注入器"的进程内通路。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 关键技术点 -->
+  <div class="critical">
+    <div class="critical-title">💡 几个关键设计决策</div>
+    <div class="critical-text">
+      <strong>1. 视频交给 WebRTC,而不是自己造传输</strong>:公网下 GCC 拥塞控制 / NACK / 带宽估计 / FEC 极难自己写好。主路径用视频轨,把这些全部外包给 Chromium。<br><br>
+      <strong>2. 输入注入必须原生</strong>:浏览器/Electron 无法系统级合成键鼠,只能靠原生 <code>SendInput</code>。这是 <code>sender/</code> 唯一不可替代、必须保留并补全的部分。<br><br>
+      <strong>3. 坐标归一化在发送端、映射在接收端</strong>:控制端只发 <code>(x/w, y/h)</code> 比例,被控端按本机分辨率换算。两端分辨率/缩放不一致也不出错。<br><br>
+      <strong>4. 信令与媒体分离</strong>:信令服务器只做"牵线"(SDP/ICE 交换),连上后媒体走 P2P/TURN,服务器零媒体负载、易横向扩展。<br><br>
+      <strong>5. 主路径 + 原生旁路双轨</strong>:公网用 WebRTC 视频轨(稳);LAN 想要极低延迟时切原生 H.264 + WebCodecs 旁路(快)。共用同一信令层。<br><br>
+      <strong>6. 安全是显式的待办</strong>:本期 Demo 不做配对码/白名单/会话授权;但 DTLS-SRTP 已默认加密传输。生产化时在信令层加配对码 + 被控端弹窗授权即可,架构已预留接入点。
+    </div>
+  </div>
+
+  <p class="note">
+    说明:本图为 <code>streaming_architecture.html</code>(单机 VR 串流 demo)的演进版,目标改为「公网双向远程桌面控制」。
+    主路径优先工程落地速度与公网稳定性;原生编码管线作为可选旁路保留现有投入。
+  </p>
+
+</div>
+</body>
+</html>

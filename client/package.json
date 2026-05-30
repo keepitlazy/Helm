@@ -1,0 +1,14 @@
+{
+  "name": "stream-demo-client",
+  "version": "0.1.0",
+  "description": "Electron UI client for the low-latency screen streaming demo",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . StreamDemo --platform=win32 --arch=x64 --out=dist --overwrite --asar --ignore=\"^/dist$\" --ignore=\"^/node_modules$\" --extra-resource=../sender/build/Release/stream_sender.exe"
+  },
+  "devDependencies": {
+    "electron": "^42.0.0",
+    "@electron/packager": "^18.3.6"
+  }
+}

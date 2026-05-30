@@ -1,0 +1,23 @@
+# Build output
+/sender/build/
+/sender/out/
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.exp
+*.lib
+
+# Node / Electron
+/client/node_modules/
+/client/dist/
+npm-debug.log*
+
+# Editor
+.vs/
+.vscode/
+*.user
+
+# Captured debug frames
+*.png
+!docs/*.png
